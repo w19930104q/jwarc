@@ -125,6 +125,17 @@ Run a replay proxy and web server:
     export PORT=8080
     java -jar jwarc.jar serve example.warc
 
+In proxy mode requests carrying a body (e.g. POST) are replayed by request identity, not just by URL and date. A
+replayed request is matched to an archived `request` record whose identity is the same and which links the archived
+`response` with `WARC-Concurrent-To`. The identity is the target URI, the request method, the base Content-Type
+(ignoring parameters such as `charset`) and a digest of the complete raw request body, so reordering form parameters
+or changing the body produces a different identity. Pairs may be stored out of order and across multiple WARC files,
+including record-at-a-time gzip. Within one identity the response nearest to the requested date is chosen; if several
+candidates share the same date, or a declared `WARC-Concurrent-To` target is missing or conflicts with another
+identity, the server fails with a 409 instead of guessing, and it never falls back to a response captured for another
+request such as a GET. Responses with no associated request record remain available for ordinary GET replay. Request
+bodies larger than 16 MiB are rejected with 413 so identity matching stays memory bounded.
+
 Replay each page within in a WARC and use [headless Chrome](https://developers.google.com/web/updates/2017/04/headless-chrome)
 to render a screenshot and save it as a resource record:
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- WarcServer: proxy replay of requests with a body (e.g. POST) now matches the archived request/response pair by
+  request identity (target URI, method, base Content-Type and digest of the raw request body) linked with
+  `WARC-Concurrent-To`, rather than indexing by URL and date alone. Pairs may be stored out of order and across
+  multiple WARC files, including record-at-a-time gzip. Reordered request parameters are treated as different
+  identities. Missing or conflicting associations and same-date candidates fail with an explicit 409 and there is
+  no fallback to a response captured for another request (e.g. a GET); unassociated responses remain available for
+  ordinary GET replay. Request body handling is memory bounded (16 MiB limit, 413 if exceeded).
+
 ## 0.37.0 (2026-09-01)
 
 ### New features

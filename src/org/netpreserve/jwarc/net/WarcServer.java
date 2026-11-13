@@ -70,7 +70,36 @@ public class WarcServer extends HttpServer {
         Instant date = parseAcceptDatetime(exchange);
         if (date == null) date = parseUserAgentDate(exchange);
         if (date == null) date = Instant.EPOCH;
-        replay(exchange, exchange.param(0), date, true);
+        String target = exchange.param(0);
+        HttpRequest request = exchange.request();
+
+        if (!request.method().equals("GET") && !request.method().equals("HEAD")) {
+            proxyByRequestIdentity(exchange, target, date);
+        } else {
+            replayByUrl(exchange, target, date, true);
+        }
+    }
+
+    /**
+     * Replays a request carrying a body by matching its full request identity (URI, method, base Content-Type and
+     * raw body) against an archived request/response pair linked by WARC-Concurrent-To. Failures are reported
+     * explicitly; this never falls back to a response captured for a different request such as a GET.
+     */
+    private void proxyByRequestIdentity(HttpExchange exchange, String target, Instant date) throws IOException {
+        HttpRequest request = exchange.request();
+        RequestIdentity identity;
+        try {
+            identity = RequestIdentity.from(target, request);
+        } catch (RequestIdentity.BodyTooLargeException e) {
+            exchange.send(413, e.getMessage());
+            return;
+        }
+        try {
+            Capture capture = index.requestIndex().select(identity, date);
+            replayCapture(exchange, capture, null, true);
+        } catch (ReplayException e) {
+            exchange.send(e.statusCode(), e.getMessage());
+        }
     }
 
     private Instant parseAcceptDatetime(HttpExchange exchange) {
@@ -108,7 +137,7 @@ public class WarcServer extends HttpServer {
             return;
         }
         Instant date = Instant.from(ARC_DATE.parse(exchange.param(1)));
-        replay(exchange, exchange.param(2), date, false);
+        replayByUrl(exchange, exchange.param(2), date, false);
     }
 
     private void render(HttpExchange exchange) throws IOException {
@@ -132,13 +161,18 @@ public class WarcServer extends HttpServer {
         }
     }
 
-    private void replay(HttpExchange exchange, String target, Instant date, boolean proxy) throws IOException {
+    private void replayByUrl(HttpExchange exchange, String target, Instant date, boolean proxy) throws IOException {
         NavigableSet<Capture> versions = index.query(target);
         if (versions.isEmpty()) {
             exchange.send(404, "Not found in archive");
             return;
         }
         Capture capture = closest(versions, target, date);
+        replayCapture(exchange, capture, versions, proxy);
+    }
+
+    private void replayCapture(HttpExchange exchange, Capture capture, NavigableSet<Capture> versions, boolean proxy)
+            throws IOException {
         try (FileChannel channel = FileChannel.open(capture.file(), READ)) {
             channel.position(capture.position());
             WarcReader reader = new WarcReader(channel);
@@ -170,7 +204,7 @@ public class WarcServer extends HttpServer {
             }
             responseBuilder.setHeader("Connection", "keep-alive");
             responseBuilder.setHeader("Memento-Datetime", RFC_1123_UTC.format(record.date()));
-            if (!proxy) responseBuilder.setHeader("Link", mementoLinks(versions, capture));
+            if (!proxy && versions != null) responseBuilder.setHeader("Link", mementoLinks(versions, capture));
             if (proxy) responseBuilder.setHeader("Vary", "Accept-Datetime");
 
             if (!proxy && HTML.equals(contentType.base())) {
