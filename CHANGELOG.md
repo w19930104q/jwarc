@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- RevisitResolver / ResolvedPayload: local multi-WARC payload resolution for `revisit` records. Follows
+  `WARC-Refers-To` chains across files, forwards and through multiple revisits to a `response` or `resource`
+  record, limited to the standard `identical-payload-digest` profiles; supports plain and record-at-a-time gzip
+  WARCs, verifies declared payload digests and reports distinct failure reasons (missing target, reference
+  cycle, duplicate record id, digest mismatch, unsupported profile, unsupported target type or compression)
+- `extract` command: new optional `--revisit` flag (used with `--payload`) that resolves revisit payloads via
+  `RevisitResolver`, accepting additional search files through repeatable `--warc-file` options and returning
+  distinct non-zero exit codes per failure category. Existing behaviour is unchanged when the flag is not given
+
 ## 0.37.0 (2026-09-01)
 
 ### New features

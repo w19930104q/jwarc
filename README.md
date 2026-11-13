@@ -153,6 +153,24 @@ Create a new file containing only html responses with status 200:
 
     java -jar jwarc.jar filter ':status == 200 && http:content-type =~ "text/html(;.*)?"' example.warc > pages.warc 
 
+Extract the payload of a record at a byte offset:
+
+    java -jar jwarc.jar extract --payload example.warc 482
+
+A `revisit` record normally contains only a reference, not the original payload. With `--revisit` jwarc follows
+the `WARC-Refers-To` chain through the given WARC files to the original `response` or `resource` record, verifies
+the declared `WARC-Payload-Digest` along the chain and against the stored bytes, and then outputs the decoded
+body. References may span multiple files, point forwards and pass through other revisit records. Only the
+standard `identical-payload-digest` profiles are supported; plain and record-at-a-time gzip WARCs work, while
+streaming gzip and Zstandard cannot be randomly accessed and are rejected:
+
+    java -jar jwarc.jar extract --payload --revisit \
+        --warc-file earlier-captures.warc.gz revisit.warc.gz 0
+
+Failures use distinct non-zero exit codes so they can be told apart: 2 target not found, 3 reference cycle,
+4 duplicate record id, 5 digest mismatch, 6 unsupported revisit profile and 7 unsupported target type or
+compression. Without `--revisit` the legacy behaviour is unchanged and revisit records produce no payload.
+
 All available tools are listed per
 
     java -jar jwarc.jar
@@ -316,6 +334,26 @@ No methods are specific to resource records. See WarcRecord, WarcTargetRecord, W
 ```
 
 Note: revisit records never have a payload so 
+
+#### RevisitResolver
+
+Recovers the payload of a revisit record by following the `WARC-Refers-To` chain across one or more local WARC
+files to the original `response` or `resource` record. Indexing reads only record headers; the payload is then
+streamed (never fully buffered) and the declared `WARC-Payload-Digest` is verified. Each failure category is a
+distinct `RevisitResolutionException.Reason`:
+
+```java
+        try (RevisitResolver resolver = new RevisitResolver(Arrays.asList(revisitWarc, earlierWarc));
+             ResolvedPayload resolved = resolver.resolve(revisit)) {
+            resolved.referenceChain();          // revisit id ... terminal response/resource id
+            readAll(resolved.body());            // stored payload bytes; digest calculated while reading
+            resolved.verifyDigest();             // check against the declared WARC-Payload-Digest
+            // or, instead of body()/verifyDigest(), output the HTTP-decoded body:
+            // readAll(resolved.decodedBody());
+        } catch (RevisitResolutionException e) {
+            e.reason();                         // TARGET_NOT_FOUND, REFERENCE_CYCLE, DUPLICATE_RECORD_ID, ...
+        }
+```
 
 ## Comparison
 
